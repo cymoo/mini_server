@@ -1,9 +1,9 @@
 import socket
+import sys
 from io import BytesIO
+from queue import Queue
 from threading import Thread
 from typing import Callable, Tuple, List, Dict, Optional
-import sys
-from queue import Queue
 
 
 class MiniServer:
@@ -27,7 +27,6 @@ class MiniServer:
             'SERVER_PORT': self.server_port,
             'SERVER_SOFTWARE': 'MiniServer/0.1',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'SCRIPT_NAME': '',
             'wsgi.version': (1, 0),
             'wsgi.url_scheme': 'http',
             'wsgi.multithread': True,
@@ -42,7 +41,7 @@ class MiniServer:
             'CONTENT_TYPE': '',
             'CONTENT_LENGTH': 0,
             'REMOTE_ADDR': '127.0.0.1',
-            'wsgi.input': BytesIO(),
+            'wsgi.input': sys.stdin.buffer,
         }
 
     def setup_environ(self, **kw) -> dict:
@@ -55,6 +54,7 @@ class MiniServer:
         line = rfile.readline().decode().strip()
         request_method, path, _ = line.split()
         parts = path.split('?', maxsplit=1)
+
         if len(parts) == 1:
             path_info, query_string = parts[0], ''
         else:
@@ -69,6 +69,7 @@ class MiniServer:
     @staticmethod
     def parse_request_headers(rfile) -> Dict[str, str]:
         headers = {}
+
         while True:
             line = rfile.readline().decode()
             if line in ('\r\n', '\n', ''):
@@ -76,6 +77,7 @@ class MiniServer:
 
             key, value = line.strip().split(': ', maxsplit=1)
             key = key.upper().replace('-', '_')
+
             if key not in ('CONTENT_TYPE', 'CONTENT_LENGTH'):
                 key = 'HTTP_' + key
             headers[key] = value
@@ -90,26 +92,23 @@ class MiniServer:
                            response_headers: List[Tuple[str, str]],
                            exc_info=None):
             response = f'HTTP/1.0 {status_line}\r\n'
-
             for header in response_headers:
-                response += '{0}: {1}\r\n'.format(*header)
-
+                response += f'{header[0]}: {header[1]}\r\n'
             response += '\r\n'
             wfile.write(response.encode())
 
-        try:
-            environ = self.setup_environ(**self.parse_request_line(rfile),
-                                         **self.parse_request_headers(rfile))
-            environ['REMOTE_ADDR'] = addr[0]
-            environ['wsgi.input'] = rfile
+        environ = self.setup_environ(**self.parse_request_line(rfile),
+                                     **self.parse_request_headers(rfile))
+        environ['REMOTE_ADDR'] = addr[0]
+        environ['wsgi.input'] = rfile
 
+        try:
             result = self.app(environ, start_response)
             for data in result:
                 wfile.write(data)
-
+        finally:
             if hasattr(result, 'close'):
                 result.close()
-        finally:
             rfile.close()
             wfile.close()
             conn.close()
