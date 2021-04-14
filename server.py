@@ -6,11 +6,13 @@ from typing import Callable, Tuple, List, Dict, Optional
 
 
 class MiniServer:
+    REQUEST_QUEUE_SIZE = 32
+
     def __init__(self, server_addr: Tuple[str, int]) -> None:
         self.sock = sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(server_addr)
-        sock.listen(32)
+        sock.listen(self.REQUEST_QUEUE_SIZE)
 
         host, port = sock.getsockname()[:2]
         self.server_name = socket.getfqdn(host)
