@@ -1,17 +1,18 @@
 import socket
 from io import BytesIO
-from pprint import pprint
-from typing import Callable, Tuple, List, Dict
+from threading import Thread
+from typing import Callable, Tuple, List, Dict, Optional
 import sys
-from wsgiref import simple_server
+from queue import Queue
 
 
 class MiniServer:
-    def __init__(self, server_addr: Tuple[str, int]) -> None:
+    def __init__(self, server_addr: Tuple[str, int], app: Optional[Callable] = None) -> None:
+        self.app = app
         self.sock = sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(server_addr)
-        sock.listen(8)  # request queue size
+        sock.listen(32)
 
         host, port = sock.getsockname()[:2]
         self.server_name = socket.getfqdn(host)
@@ -32,13 +33,12 @@ class MiniServer:
             'wsgi.run_once': False,
             'wsgi.errors': sys.stderr,
 
-            # will be override
+            # The values will be override
             'PATH_INFO': '/',
             'REQUEST_METHOD': 'GET',
             'QUERY_STRING': '',
             'CONTENT_TYPE': '',
             'CONTENT_LENGTH': 0,
-            'REMOTE_HOST': '',
             'REMOTE_ADDR': '127.0.0.1',
             'wsgi.input': BytesIO(),
         }
@@ -49,8 +49,8 @@ class MiniServer:
         return environ
 
     @staticmethod
-    def parse_request_line(rf) -> Dict[str, str]:
-        line = rf.readline().decode().strip()
+    def parse_request_line(rfile) -> Dict[str, str]:
+        line = rfile.readline().decode().strip()
         request_method, path, _ = line.split()
         parts = path.split('?', maxsplit=1)
         if len(parts) == 1:
@@ -65,10 +65,10 @@ class MiniServer:
         }
 
     @staticmethod
-    def parse_request_headers(rf) -> Dict[str, str]:
+    def parse_request_headers(rfile) -> Dict[str, str]:
         headers = {}
         while True:
-            line = rf.readline().decode()
+            line = rfile.readline().decode()
             if line in ('\r\n', '\n', ''):
                 break
 
@@ -79,9 +79,10 @@ class MiniServer:
             headers[key] = value
         return headers
 
-    def handle_one_request(self, conn: socket.socket):
-        rf = conn.makefile('rb')
-        wf = conn.makefile('wb')
+    def handle_request(self, queue: Queue) -> None:
+        conn, addr = queue.get()
+        rfile = conn.makefile('rb')
+        wfile = conn.makefile('wb')
 
         def start_response(status_line: str, response_headers: List[Tuple[str, str]], exc_info=None):
             response = f'HTTP/1.0 {status_line}\r\n'
@@ -90,36 +91,41 @@ class MiniServer:
                 response += '{0}: {1}\r\n'.format(*header)
 
             response += '\r\n'
-            wf.write(response.encode())
+            wfile.write(response.encode())
 
         try:
             environ = self.setup_environ(
-                **self.parse_request_line(rf),
-                **self.parse_request_headers(rf)
+                **self.parse_request_line(rfile),
+                **self.parse_request_headers(rfile)
             )
-            environ['wsgi.input'] = rf
+            environ['REMOTE_ADDR'] = addr[0]
+            environ['wsgi.input'] = rfile
 
             result = self.app(environ, start_response)
             for data in result:
-                wf.write(data)
+                wfile.write(data)
 
             if hasattr(result, 'close'):
                 result.close()
         finally:
-            rf.close()
-            wf.close()
+            rfile.close()
+            wfile.close()
             conn.close()
 
-    def set_app(self, app: Callable) -> None:
+    def make_threads(self, num_workers: int = 16) -> Queue:
+        queue = Queue()
+        for _ in range(num_workers):
+            thread = Thread(target=self.handle_request, args=(queue,))
+            thread.daemon = True
+            thread.start()
+        return queue
+
+    def set_application(self, app: Callable) -> None:
         self.app = app
 
     def run_forever(self) -> None:
-        print(f'Serving HTTP on port {self.server_port}...')
+        print(f'Serving HTTP server on port {self.server_port}...')
+        queue = self.make_threads()
         while True:
             conn, addr = self.sock.accept()
-            self.handle_one_request(conn)
-
-
-if __name__ == '__main__':
-    server = MiniServer(('0.0.0.0', 8888))
-    server.run_forever()
+            queue.put((conn, addr))
