@@ -6,10 +6,7 @@ from typing import Callable, Tuple, List, Dict, Optional
 
 
 class MiniServer:
-    def __init__(self,
-                 server_addr: Tuple[str, int],
-                 app: Optional[Callable] = None) -> None:
-        self.app = app
+    def __init__(self, server_addr: Tuple[str, int]) -> None:
         self.sock = sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(server_addr)
