@@ -1,6 +1,5 @@
 import socket
 import sys
-from io import BytesIO
 from queue import Queue
 from threading import Thread
 from typing import Callable, Tuple, List, Dict, Optional
