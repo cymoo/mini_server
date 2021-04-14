@@ -113,9 +113,9 @@ class MiniServer:
             wfile.close()
             conn.close()
 
-    def make_threads(self, num_workers: int = 16) -> Queue:
+    def make_threads(self, num_threads) -> Queue:
         queue = Queue()
-        for _ in range(num_workers):
+        for _ in range(num_threads):
             thread = Thread(target=self.handle_request, args=(queue, ))
             thread.daemon = True
             thread.start()
@@ -124,9 +124,9 @@ class MiniServer:
     def set_application(self, app: Callable) -> None:
         self.app = app
 
-    def run_forever(self) -> None:
+    def run_forever(self, num_threads: int = 16) -> None:
         print(f'Serving HTTP server on port {self.server_port}...')
-        queue = self.make_threads()
+        queue = self.make_threads(num_threads)
         while True:
             conn, addr = self.sock.accept()
             queue.put((conn, addr))
