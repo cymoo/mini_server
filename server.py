@@ -7,7 +7,9 @@ from queue import Queue
 
 
 class MiniServer:
-    def __init__(self, server_addr: Tuple[str, int], app: Optional[Callable] = None) -> None:
+    def __init__(self,
+                 server_addr: Tuple[str, int],
+                 app: Optional[Callable] = None) -> None:
         self.app = app
         self.sock = sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -84,7 +86,9 @@ class MiniServer:
         rfile = conn.makefile('rb')
         wfile = conn.makefile('wb')
 
-        def start_response(status_line: str, response_headers: List[Tuple[str, str]], exc_info=None):
+        def start_response(status_line: str,
+                           response_headers: List[Tuple[str, str]],
+                           exc_info=None):
             response = f'HTTP/1.0 {status_line}\r\n'
 
             for header in response_headers:
@@ -94,10 +98,8 @@ class MiniServer:
             wfile.write(response.encode())
 
         try:
-            environ = self.setup_environ(
-                **self.parse_request_line(rfile),
-                **self.parse_request_headers(rfile)
-            )
+            environ = self.setup_environ(**self.parse_request_line(rfile),
+                                         **self.parse_request_headers(rfile))
             environ['REMOTE_ADDR'] = addr[0]
             environ['wsgi.input'] = rfile
 
@@ -115,7 +117,7 @@ class MiniServer:
     def make_threads(self, num_workers: int = 16) -> Queue:
         queue = Queue()
         for _ in range(num_workers):
-            thread = Thread(target=self.handle_request, args=(queue,))
+            thread = Thread(target=self.handle_request, args=(queue, ))
             thread.daemon = True
             thread.start()
         return queue
