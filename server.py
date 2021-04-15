@@ -2,7 +2,7 @@ import socket
 import sys
 from queue import Queue
 from threading import Thread
-from typing import Callable, Tuple, List, Dict, Optional
+from typing import Callable, Tuple, List, Dict
 
 
 class MiniServer:
@@ -82,34 +82,35 @@ class MiniServer:
         return headers
 
     def handle_request(self, queue: Queue) -> None:
-        conn, addr = queue.get()
-        rfile = conn.makefile('rb')
-        wfile = conn.makefile('wb')
+        while True:
+            conn, addr = queue.get()
+            rfile = conn.makefile('rb')
+            wfile = conn.makefile('wb')
 
-        def start_response(status_line: str,
-                           response_headers: List[Tuple[str, str]],
-                           exc_info=None):
-            response = f'HTTP/1.0 {status_line}\r\n'
-            for header in response_headers:
-                response += f'{header[0]}: {header[1]}\r\n'
-            response += '\r\n'
-            wfile.write(response.encode())
+            def start_response(status_line: str,
+                               response_headers: List[Tuple[str, str]],
+                               exc_info=None):
+                response = f'HTTP/1.0 {status_line}\r\n'
+                for header in response_headers:
+                    response += f'{header[0]}: {header[1]}\r\n'
+                response += '\r\n'
+                wfile.write(response.encode())
 
-        environ = self.setup_environ(**self.parse_request_line(rfile),
-                                     **self.parse_request_headers(rfile))
-        environ['REMOTE_ADDR'] = addr[0]
-        environ['wsgi.input'] = rfile
+            environ = self.setup_environ(**self.parse_request_line(rfile),
+                                         **self.parse_request_headers(rfile))
+            environ['REMOTE_ADDR'] = addr[0]
+            environ['wsgi.input'] = rfile
 
-        try:
-            result = self.app(environ, start_response)
-            for data in result:
-                wfile.write(data)
-        finally:
-            if hasattr(result, 'close'):
-                result.close()
-            rfile.close()
-            wfile.close()
-            conn.close()
+            try:
+                result = self.app(environ, start_response)
+                for data in result:
+                    wfile.write(data)
+            finally:
+                if hasattr(result, 'close'):
+                    result.close()
+                rfile.close()
+                wfile.close()
+                conn.close()
 
     def make_threads(self, num_threads) -> Queue:
         queue = Queue()
@@ -122,7 +123,7 @@ class MiniServer:
     def set_application(self, app: Callable) -> None:
         self.app = app
 
-    def run_forever(self, num_threads: int = 16) -> None:
+    def run_forever(self, num_threads: int = 2) -> None:
         print(f'Serving HTTP server on port {self.server_port}...')
         queue = self.make_threads(num_threads)
         while True:
